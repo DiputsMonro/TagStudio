@@ -61,7 +61,7 @@ class SQLBoolExpressionBuilder(BaseVisitor[ColumnElement[bool]]):
         return or_(*[self.visit(element) for element in node.elements])
 
     def visit_and_list(self, node: ANDList) -> ColumnElement[bool]:
-        tag_ids: list[int] = []
+        tag_ids: set[int] = set([])
         bool_expressions: list[ColumnElement[bool]] = []
 
         # Search for TagID / unambiguous Tag Constraints and store the respective tag ids separately
@@ -70,7 +70,7 @@ class SQLBoolExpressionBuilder(BaseVisitor[ColumnElement[bool]]):
                 match term.type:
                     case ConstraintType.TagID:
                         try:
-                            tag_ids.append(int(term.value))
+                            tag_ids.add(int(term.value))
                         except ValueError:
                             logger.error(
                                 "[SQLBoolExpressionBuilder] Could not cast value to an int Tag ID",
@@ -79,7 +79,7 @@ class SQLBoolExpressionBuilder(BaseVisitor[ColumnElement[bool]]):
                         continue
                     case ConstraintType.Tag:
                         if len(ids := self.__get_tag_ids(term.value)) == 1:
-                            tag_ids.append(ids[0])
+                            tag_ids.add(ids[0])
                             continue
 
             bool_expressions.append(self.visit(term))
@@ -90,9 +90,7 @@ class SQLBoolExpressionBuilder(BaseVisitor[ColumnElement[bool]]):
             bool_expressions.append(self.__entry_has_all_tags(tag_ids))
         # If there is just one tag id, check the normal way
         elif len(tag_ids) == 1:
-            bool_expressions.append(
-                self.__entry_satisfies_expression(TagEntry.tag_id == tag_ids[0])
-            )
+            bool_expressions.append(self.__entry_satisfies_expression(TagEntry.tag_id.in_(tag_ids)))
 
         return and_(*bool_expressions)
 
@@ -185,7 +183,7 @@ class SQLBoolExpressionBuilder(BaseVisitor[ColumnElement[bool]]):
                 outp.extend(list(session.scalars(TAG_CHILDREN_ID_QUERY, {"tag_id": tag_id})))
             return outp
 
-    def __entry_has_all_tags(self, tag_ids: list[int]) -> ColumnElement[bool]:
+    def __entry_has_all_tags(self, tag_ids: set[int]) -> ColumnElement[bool]:
         """Returns Binary Expression that is true if the Entry has all provided tag ids."""
         # Relational Division Query
         return Entry.id.in_(
